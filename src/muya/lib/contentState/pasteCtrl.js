@@ -274,6 +274,7 @@ const pasteCtrl = ContentState => {
     // Remove crap from HTML such as meta data and styles and sanitize HTML,
     // but `text` may still contain dangerous HTML.
     html = await this.standardizeHTML(html)
+    // console.log('html', html)
 
     let copyType = this.checkCopyType(html, text)
     const { start, end } = this.cursor

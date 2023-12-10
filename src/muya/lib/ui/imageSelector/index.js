@@ -6,6 +6,10 @@ import { getUniqueId, getImageInfo as getImageSrc } from '../../utils'
 import { getImageInfo } from '../../utils/getImageInfo'
 
 import './index.css'
+import path from 'path'
+import os from 'os'
+import fs from 'fs'
+import axios from 'axios'
 
 const toJson = res => {
   if (res.type === 'success') {
@@ -59,7 +63,11 @@ class ImageSelector extends BaseFloat {
   listen () {
     super.listen()
     const { eventCenter } = this.muya
-    eventCenter.subscribe('muya-image-selector', ({ reference, cb, imageInfo }) => {
+    eventCenter.subscribe('muya-image-selector', ({
+      reference,
+      cb,
+      imageInfo
+    }) => {
       if (reference) {
         // Unselected image.
         const { contentState } = this.muya
@@ -229,18 +237,38 @@ class ImageSelector extends BaseFloat {
     } else {
       list = await this.muya.options.imagePathAutoComplete(value)
     }
-    eventCenter.dispatch('muya-image-picker', { reference, list, cb })
+    eventCenter.dispatch('muya-image-picker', {
+      reference,
+      list,
+      cb
+    })
   }
 
   handleLinkButtonClick () {
     return this.replaceImageAsync(this.state)
   }
 
-  replaceImageAsync = async ({ alt, src, title }) => {
+  handleSaveImageToLocalLinkButtonClick () {
+    return this.replaceImageToLocalAsync(this.state)
+  }
+
+  replaceImageAsync = async ({
+    alt,
+    src,
+    title
+  }) => {
     if (!this.muya.options.imageAction || URL_REG.test(src)) {
-      const { alt: oldAlt, src: oldSrc, title: oldTitle } = this.imageInfo.token.attrs
+      const {
+        alt: oldAlt,
+        src: oldSrc,
+        title: oldTitle
+      } = this.imageInfo.token.attrs
       if (alt !== oldAlt || src !== oldSrc || title !== oldTitle) {
-        this.muya.contentState.replaceImage(this.imageInfo, { alt, src, title })
+        this.muya.contentState.replaceImage(this.imageInfo, {
+          alt,
+          src,
+          title
+        })
       }
       this.hide()
     } else {
@@ -280,6 +308,70 @@ class ImageSelector extends BaseFloat {
     this.muya.eventCenter.dispatch('stateChange')
   }
 
+  replaceImageToLocalAsync = async ({
+    alt,
+    src,
+    title
+  }) => {
+    // 需要处理图片
+    if (this.muya.options.imageAction && URL_REG.test(src)) {
+      console.log('image url = ' + src)
+      const tmpdir = path.resolve(os.tmpdir(), '.images')
+      console.log(tmpdir)
+      if (!fs.existsSync(tmpdir)) {
+        fs.mkdirSync(tmpdir, { recursive: true })
+      }
+      let filename = getUniqueId() + src.split('?').shift().split('/').pop()
+      let parserUrl = new URL(src)
+      console.log('referef', parserUrl.protocol + '//' + parserUrl.hostname)
+
+      await axios({
+        method: 'get',
+        url: src,
+        responseType: 'stream'
+      }).then(response => {
+        const fileStream = fs.createWriteStream(path.resolve(os.tmpdir(), `.images/${filename}`), { autoClose: true })
+        response.data.pipe(fileStream)
+        fileStream.on('finish', async () => {
+          console.log(path.resolve(os.tmpdir(), `.images/${filename}`))
+          src = path.resolve(os.tmpdir(), `.images/${filename}`)
+          if (src) {
+            const id = `loading-${getUniqueId()}`
+            this.muya.contentState.replaceImage(this.imageInfo, {
+              alt: id,
+              src,
+              title
+            })
+            this.hide()
+            try {
+              const newSrc = await this.muya.options.imageAction(src, id, alt)
+              const { src: localPath } = getImageSrc(src)
+              if (localPath) {
+                this.muya.contentState.stateRender.urlMap.set(newSrc, localPath)
+              }
+              const imageWrapper = this.muya.container.querySelector(`span[data-id=${id}]`)
+
+              if (imageWrapper) {
+                const imageInfo = getImageInfo(imageWrapper)
+                this.muya.contentState.replaceImage(imageInfo, {
+                  alt,
+                  src: newSrc,
+                  title
+                })
+              }
+            } catch (error) {
+              // TODO: Notify user about an error.
+              console.error('Unexpected error on image action:', error)
+            }
+            this.muya.eventCenter.dispatch('stateChange')
+          }
+        })
+      }).catch(error => {
+        alert(error)
+      })
+    }
+  }
+
   async handleSelectButtonClick () {
     if (!this.muya.options.imagePathPicker) {
       console.warn('You need to add a imagePathPicker option')
@@ -287,7 +379,10 @@ class ImageSelector extends BaseFloat {
     }
 
     const path = await this.muya.options.imagePathPicker()
-    const { alt, title } = this.state
+    const {
+      alt,
+      title
+    } = this.state
     return this.replaceImageAsync({
       alt,
       title,
@@ -302,6 +397,9 @@ class ImageSelector extends BaseFloat {
     }, {
       label: 'Embed link',
       value: 'link'
+    }, {
+      label: 'save image to local',
+      value: 'save_to_local'
     }]
 
     if (this.unsplash) {
@@ -326,8 +424,16 @@ class ImageSelector extends BaseFloat {
   }
 
   renderBody = () => {
-    const { tab, state, isFullMode } = this
-    const { alt, title, src } = state
+    const {
+      tab,
+      state,
+      isFullMode
+    } = this
+    const {
+      alt,
+      title,
+      src
+    } = state
     let bodyContent = null
     if (tab === 'select') {
       bodyContent = [
@@ -340,6 +446,40 @@ class ImageSelector extends BaseFloat {
         }, 'Choose an Image'),
         h('span.description', 'Choose image from your computer.')
       ]
+    } else if (tab === 'save_to_local') {
+      const srcInput = h('input.src', {
+        props: {
+          placeholder: 'Image link or local path',
+          value: src
+        },
+        on: {
+          input: event => {
+            this.inputHandler(event, 'src')
+          },
+          paste: event => {
+            this.inputHandler(event, 'src')
+          },
+          keydown: event => {
+            this.srcInputKeyDown(event)
+          },
+          keyup: event => {
+            this.handleKeyUp(event)
+          }
+        }
+      })
+      const inputWrapper = h('div.input-container', [srcInput])
+      const embedButton = h('button.muya-button.role-button.link', {
+        on: {
+          click: event => {
+            this.handleSaveImageToLocalLinkButtonClick()
+          }
+        }
+      }, 'save image to local')
+      if (src.startsWith('http')) {
+        bodyContent = [inputWrapper, embedButton]
+      } else {
+        bodyContent = [inputWrapper]
+      }
     } else if (tab === 'link') {
       const altInput = h('input.alt', {
         props: {
@@ -460,7 +600,11 @@ class ImageSelector extends BaseFloat {
                       downloadLocation: result.links.download_location
                     })
                   })
-                return this.replaceImageAsync({ alt, title, src })
+                return this.replaceImageAsync({
+                  alt,
+                  title,
+                  src
+                })
               }
             }
           }, h('img', {
@@ -493,7 +637,10 @@ class ImageSelector extends BaseFloat {
   }
 
   render () {
-    const { oldVnode, imageSelectorContainer } = this
+    const {
+      oldVnode,
+      imageSelectorContainer
+    } = this
     const selector = 'div'
     const vnode = h(selector, [this.renderHeader(), this.renderBody()])
     if (oldVnode) {
