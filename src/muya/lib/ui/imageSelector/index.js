@@ -321,7 +321,10 @@ class ImageSelector extends BaseFloat {
       if (!fs.existsSync(tmpdir)) {
         fs.mkdirSync(tmpdir, { recursive: true })
       }
-      let filename = getUniqueId() + src.split('?').shift().split('/').pop()
+      let tmpFileName = src.split('?').shift().split('/').pop()
+      const indexOf = tmpFileName.lastIndexOf('.')
+      let endWith = tmpFileName.substring(indexOf).replaceAll('awebp', 'webp')
+      let filename = getUniqueId() + tmpFileName.substring(0, indexOf).replaceAll(/\W/ig, '') + endWith
       let parserUrl = new URL(src)
       console.log('referef', parserUrl.protocol + '//' + parserUrl.hostname)
 
@@ -367,7 +370,7 @@ class ImageSelector extends BaseFloat {
           }
         })
       }).catch(error => {
-        alert(error)
+        alert(error.toJSON())
       })
     }
   }

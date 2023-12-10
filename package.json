@@ -118,7 +118,7 @@
     "electron": "^18.0.4",
     "electron-builder": "^23.0.6",
     "electron-devtools-installer": "^3.2.0",
-    "electron-rebuild": "^3.2.7",
+    "electron-rebuild": "^3.2.5",
     "electron-updater": "^5.0.2",
     "eslint": "^8.13.0",
     "eslint-config-standard": "^16.0.3",
